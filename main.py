@@ -622,9 +622,17 @@ def extract_text_from_pdf(pdf_file: UploadFile) -> str:
         # If regular extraction failed or returned minimal text, try OCR
         print("Attempting OCR extraction...")
         try:
-            # Set Tesseract path for Render deployment
-            if os.path.exists('/usr/bin/tesseract'):
-                pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
+            # Try multiple Tesseract paths for different environments
+            tesseract_paths = [
+                '/usr/bin/tesseract',
+                '/usr/local/bin/tesseract', 
+                'tesseract'
+            ]
+            
+            for path in tesseract_paths:
+                if os.path.exists(path) or path == 'tesseract':
+                    pytesseract.pytesseract.tesseract_cmd = path
+                    break
             
             # Convert PDF to images
             images = convert_from_bytes(pdf_content, dpi=200)
@@ -643,7 +651,10 @@ def extract_text_from_pdf(pdf_file: UploadFile) -> str:
                 
         except Exception as ocr_error:
             print(f"OCR extraction failed: {ocr_error}")
-            raise HTTPException(status_code=400, detail="Could not process this PDF. Please try a different document.")
+            # Fallback: return whatever text we got from regular extraction
+            if text.strip():
+                return text.strip()
+            raise HTTPException(status_code=400, detail="Could not process this PDF. OCR failed and no text found.")
         
     except PyPDF2.errors.PdfReadError:
         raise HTTPException(status_code=400, detail="Invalid or corrupted PDF file")
