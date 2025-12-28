@@ -24,7 +24,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.units import inch
-from google.cloud import vision
+
 from PIL import Image
 from pdf2image import convert_from_bytes
 import pytesseract
