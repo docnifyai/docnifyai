@@ -61,7 +61,7 @@ app = FastAPI(title="Docnify API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "https://docnifyai.web.app", "https://docnify-e0j1.onrender.com"],
+    allow_origins=["http://localhost:5173", "https://docnifyai6.web.app", "https://docnifyai.onrender.com"],
     allow_credentials=True,
     allow_methods=["POST", "GET", "DELETE"],
     allow_headers=["*"],
@@ -75,51 +75,107 @@ async def read_root():
 async def health_check():
     return {"status": "healthy"}
 
+@app.get("/api/status")
+async def api_status():
+    """Get API key status"""
+    status = {'total_keys': len(gemini_manager.keys), 'active_keys': len(gemini_manager.get_available_keys()), 'keys': {}}
+    for key_id in gemini_manager.keys.keys():
+        status['keys'][key_id] = {
+            'status': gemini_manager.key_status.get(key_id, 'unknown'),
+            'failure_count': gemini_manager.failure_count.get(key_id, 0),
+            'available': gemini_manager._is_key_available(key_id)
+        }
+    return status
 
 
-# API Key Pool Management
-def get_gemini_clients():
-    """Create list of Gemini clients from available API keys"""
-    clients = []
-    for i in range(1, 21):  # Try keys 1-20
-        api_key = os.getenv(f"GEMINI_API_KEY_{i}")
-        if api_key and api_key != f"YOUR_API_KEY_{i}":  # Skip placeholder keys
+
+# Enhanced API Key Pool Management with Intelligent Polling
+class GeminiKeyManager:
+    def __init__(self):
+        self.keys = {}
+        self.key_status = {}  # Track key health
+        self.last_used = {}   # Track last usage time
+        self.failure_count = {}  # Track consecutive failures
+        self.cooldown_until = {}  # Track cooldown periods
+        self._initialize_keys()
+    
+    def _initialize_keys(self):
+        """Initialize all available API keys"""
+        for i in range(1, 21):
+            api_key = os.getenv(f"GEMINI_API_KEY_{i}")
+            if api_key and api_key != f"YOUR_API_KEY_{i}":
+                try:
+                    client = genai.Client(api_key=api_key)
+                    self.keys[i] = {'client': client, 'api_key': api_key}
+                    self.key_status[i] = 'active'
+                    self.failure_count[i] = 0
+                    self.cooldown_until[i] = None
+                    print(f"✅ Initialized Gemini API key {i}")
+                except Exception as e:
+                    print(f"❌ Failed to initialize API key {i}: {e}")
+        print(f"📊 Total active API keys: {len(self.keys)}")
+    
+    def _is_key_available(self, key_id: int) -> bool:
+        """Check if key is available for use"""
+        if key_id not in self.keys:
+            return False
+        if self.cooldown_until.get(key_id) and datetime.now() < self.cooldown_until[key_id]:
+            return False
+        if self.cooldown_until.get(key_id) and datetime.now() >= self.cooldown_until[key_id]:
+            self.cooldown_until[key_id] = None
+            self.failure_count[key_id] = 0
+            self.key_status[key_id] = 'active'
+        return self.key_status.get(key_id) == 'active'
+    
+    def _mark_key_failed(self, key_id: int, error: Exception):
+        """Mark key as failed and apply cooldown"""
+        self.failure_count[key_id] = self.failure_count.get(key_id, 0) + 1
+        error_str = str(error).lower()
+        
+        if '429' in error_str or 'resource_exhausted' in error_str or 'quota' in error_str:
+            cooldown_minutes = min(60, self.failure_count[key_id] * 10)
+            self.cooldown_until[key_id] = datetime.now() + timedelta(minutes=cooldown_minutes)
+            self.key_status[key_id] = 'quota_exhausted'
+            print(f"🚫 API key {key_id} quota exhausted, cooldown for {cooldown_minutes} minutes")
+        elif 'invalid' in error_str or 'unauthorized' in error_str:
+            self.key_status[key_id] = 'invalid'
+            print(f"❌ API key {key_id} marked as invalid")
+        else:
+            cooldown_minutes = min(5, self.failure_count[key_id])
+            self.cooldown_until[key_id] = datetime.now() + timedelta(minutes=cooldown_minutes)
+            self.key_status[key_id] = 'temporary_error'
+    
+    def get_available_keys(self) -> List[int]:
+        """Get available key IDs sorted by last usage"""
+        available = [k for k in self.keys.keys() if self._is_key_available(k)]
+        return sorted(available, key=lambda k: self.last_used.get(k, datetime.min))
+    
+    def call_with_fallback(self, prompt: str, model: str = 'gemini-2.5-flash'):
+        """Call Gemini API with intelligent fallback"""
+        available_keys = self.get_available_keys()
+        
+        if not available_keys:
+            raise HTTPException(status_code=429, detail="All API keys exhausted")
+        
+        for key_id in available_keys:
             try:
-                clients.append(genai.Client(api_key=api_key))
+                response = self.keys[key_id]['client'].models.generate_content(
+                    model=model, contents=prompt
+                )
+                self.failure_count[key_id] = 0
+                self.key_status[key_id] = 'active'
+                self.last_used[key_id] = datetime.now()
+                return response
             except Exception as e:
-                print(f"Failed to initialize client for key {i}: {e}")
-    return clients
+                self._mark_key_failed(key_id, e)
+                continue
+        
+        raise HTTPException(status_code=500, detail="All API keys failed")
 
-clients = get_gemini_clients()
+gemini_manager = GeminiKeyManager()
 
 def call_gemini_with_fallback(prompt: str, model: str = 'gemini-2.5-flash'):
-    """Call Gemini API with automatic fallback to next available key"""
-    last_error = None
-
-    for i, client in enumerate(clients):
-        try:
-            response = client.models.generate_content(
-                model=model,
-                contents=prompt
-            )
-            return response
-        except Exception as e:
-            error_str = str(e).lower()
-            # Check for quota/rate limit errors
-            if '429' in error_str or 'resource_exhausted' in error_str or 'quota' in error_str:
-                print(f"API key {i+1} quota exhausted, trying next key...")
-                last_error = e
-                continue
-            else:
-                # For other errors (auth, network, etc.), fail immediately
-                raise e
-
-    # If all keys failed due to quota, raise the last error
-    if last_error:
-        raise last_error
-
-    # If no clients available
-    raise HTTPException(status_code=500, detail="No valid Gemini API keys configured")
+    return gemini_manager.call_with_fallback(prompt, model)
 
 # In-memory storage for temporary data (documents and sessions)
 document_store = {}
@@ -820,26 +876,44 @@ async def ask_question(question_request: QuestionRequest, user: dict = Depends(g
 @app.get("/auth/google")
 async def google_auth(user: dict = Depends(get_current_user)):
     """Initiate Google OAuth flow"""
-    flow = Flow.from_client_config(
-        {
-            "web": {
-                "client_id": os.getenv("GOOGLE_CLIENT_ID"),
-                "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
-                "redirect_uris": [os.getenv("GOOGLE_REDIRECT_URI")],
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token"
-            }
-        },
-        scopes=SCOPES,
-        redirect_uri=os.getenv("GOOGLE_REDIRECT_URI")
-    )
-    authorization_url, state = flow.authorization_url(
-        access_type="offline",
-        include_granted_scopes=False,
-        prompt="consent"
-    )
-    store_oauth_state(state, user["user_id"])
-    return {"auth_url": authorization_url, "state": state}
+    try:
+        print(f"Google auth requested for user: {user['user_id']}")
+        
+        client_id = os.getenv("GOOGLE_CLIENT_ID")
+        client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
+        redirect_uri = os.getenv("GOOGLE_REDIRECT_URI")
+        
+        if not all([client_id, client_secret, redirect_uri]):
+            print("Missing Google OAuth credentials")
+            raise HTTPException(status_code=500, detail="OAuth configuration missing")
+        
+        flow = Flow.from_client_config(
+            {
+                "web": {
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "redirect_uris": [redirect_uri],
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token"
+                }
+            },
+            scopes=SCOPES,
+            redirect_uri=redirect_uri
+        )
+        authorization_url, state = flow.authorization_url(
+            access_type="offline",
+            include_granted_scopes=False,
+            prompt="consent"
+        )
+        
+        print(f"Generated auth URL: {authorization_url}")
+        print(f"State: {state}")
+        
+        store_oauth_state(state, user["user_id"])
+        return {"auth_url": authorization_url, "state": state}
+    except Exception as e:
+        print(f"Error in google_auth: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to initiate OAuth: {str(e)}")
 
 @app.get("/auth/google/callback")
 async def google_auth_callback(
