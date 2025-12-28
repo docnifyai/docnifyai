@@ -622,24 +622,8 @@ def extract_text_from_pdf(pdf_file: UploadFile) -> str:
         # If regular extraction failed or returned minimal text, try OCR
         print("Attempting OCR extraction...")
         try:
-            # Try multiple Tesseract paths for different environments
-            tesseract_paths = [
-                '/opt/homebrew/bin/tesseract',  # Homebrew on Apple Silicon
-                '/usr/local/bin/tesseract',     # Homebrew on Intel Mac
-                '/usr/bin/tesseract',           # Linux system install
-                'tesseract'                     # PATH fallback
-            ]
-            
-            tesseract_found = False
-            for path in tesseract_paths:
-                if os.path.exists(path) or path == 'tesseract':
-                    pytesseract.pytesseract.tesseract_cmd = path
-                    tesseract_found = True
-                    print(f"Using tesseract at: {path}")
-                    break
-            
-            if not tesseract_found:
-                raise Exception("tesseract is not installed or it's not in your PATH. See README file for more information.")
+            # Set tesseract command (will be installed via render-build.sh on deployment)
+            pytesseract.pytesseract.tesseract_cmd = 'tesseract'
             
             # Convert PDF to images
             images = convert_from_bytes(pdf_content, dpi=200)
