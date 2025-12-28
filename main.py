@@ -622,6 +622,10 @@ def extract_text_from_pdf(pdf_file: UploadFile) -> str:
         # If regular extraction failed or returned minimal text, try OCR
         print("Attempting OCR extraction...")
         try:
+            # Set Tesseract path for Render deployment
+            if os.path.exists('/usr/bin/tesseract'):
+                pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
+            
             # Convert PDF to images
             images = convert_from_bytes(pdf_content, dpi=200)
             ocr_text = ""
