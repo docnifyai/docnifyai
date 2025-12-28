@@ -25,10 +25,9 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.units import inch
 from google.cloud import vision
-from google.oauth2 import service_account
 from PIL import Image
 from pdf2image import convert_from_bytes
-import base64
+import pytesseract
 
 load_dotenv()
 
@@ -596,24 +595,6 @@ def upload_pdf_to_drive(user_id: str, pdf_content: bytes, filename: str) -> str:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Google Drive upload failed: {str(e)}")
 
-def get_vision_client():
-    """Initialize Google Cloud Vision client with credentials"""
-    creds_b64 = os.getenv("GOOGLE_CREDENTIALS_BASE64")
-    
-    if not creds_b64:
-        raise Exception("Google OCR credentials not found. Set GOOGLE_CREDENTIALS_BASE64 environment variable.")
-    
-    try:
-        creds_json = json.loads(
-            base64.b64decode(creds_b64).decode("utf-8")
-        )
-        
-        credentials = service_account.Credentials.from_service_account_info(creds_json)
-        client = vision.ImageAnnotatorClient(credentials=credentials)
-        return client
-    except Exception as e:
-        raise Exception(f"Failed to initialize Google Vision client: {str(e)}")
-
 def extract_text_from_pdf(pdf_file: UploadFile) -> str:
     """Extract text from PDF file with OCR fallback for images"""
     try:
@@ -645,26 +626,11 @@ def extract_text_from_pdf(pdf_file: UploadFile) -> str:
             images = convert_from_bytes(pdf_content, dpi=200)
             ocr_text = ""
             
-            # Initialize Vision API client with credentials
-            client = get_vision_client()
-            
             for i, image in enumerate(images):
-                # Convert PIL image to bytes
-                img_byte_arr = io.BytesIO()
-                image.save(img_byte_arr, format='PNG')
-                img_byte_arr = img_byte_arr.getvalue()
-                
-                # Create Vision API image object
-                vision_image = vision.Image(content=img_byte_arr)
-                
-                # Perform text detection
-                response = client.text_detection(image=vision_image)
-                texts = response.text_annotations
-                
-                if texts:
-                    page_text = texts[0].description
-                    if page_text.strip():
-                        ocr_text += f"Page {i+1}:\n{page_text}\n\n"
+                # Use Tesseract OCR
+                page_text = pytesseract.image_to_string(image, lang='eng')
+                if page_text.strip():
+                    ocr_text += f"Page {i+1}:\n{page_text}\n\n"
             
             if ocr_text.strip():
                 return ocr_text.strip()
