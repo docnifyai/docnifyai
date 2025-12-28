@@ -624,15 +624,22 @@ def extract_text_from_pdf(pdf_file: UploadFile) -> str:
         try:
             # Try multiple Tesseract paths for different environments
             tesseract_paths = [
-                '/usr/bin/tesseract',
-                '/usr/local/bin/tesseract', 
-                'tesseract'
+                '/opt/homebrew/bin/tesseract',  # Homebrew on Apple Silicon
+                '/usr/local/bin/tesseract',     # Homebrew on Intel Mac
+                '/usr/bin/tesseract',           # Linux system install
+                'tesseract'                     # PATH fallback
             ]
             
+            tesseract_found = False
             for path in tesseract_paths:
                 if os.path.exists(path) or path == 'tesseract':
                     pytesseract.pytesseract.tesseract_cmd = path
+                    tesseract_found = True
+                    print(f"Using tesseract at: {path}")
                     break
+            
+            if not tesseract_found:
+                raise Exception("tesseract is not installed or it's not in your PATH. See README file for more information.")
             
             # Convert PDF to images
             images = convert_from_bytes(pdf_content, dpi=200)
@@ -654,7 +661,7 @@ def extract_text_from_pdf(pdf_file: UploadFile) -> str:
             # Fallback: return whatever text we got from regular extraction
             if text.strip():
                 return text.strip()
-            raise HTTPException(status_code=400, detail="Could not process this PDF. OCR failed and no text found.")
+            raise HTTPException(status_code=400, detail=f"OCR extraction failed: {str(ocr_error)}. Please ensure tesseract and poppler are installed. Run './install_ocr.sh' to install dependencies.")
         
     except PyPDF2.errors.PdfReadError:
         raise HTTPException(status_code=400, detail="Invalid or corrupted PDF file")
