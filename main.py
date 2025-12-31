@@ -25,9 +25,8 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.units import inch
 
-from PIL import Image
-from pdf2image import convert_from_bytes
-import pytesseract
+import requests
+import tempfile
 
 load_dotenv()
 
@@ -595,8 +594,42 @@ def upload_pdf_to_drive(user_id: str, pdf_content: bytes, filename: str) -> str:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Google Drive upload failed: {str(e)}")
 
+def ocr_space_pdf(pdf_content: bytes) -> str:
+    """Extract text from PDF using OCR.space API"""
+    OCR_API_KEY = os.getenv("OCR_SPACE_API_KEY", "helloworld")
+    url = "https://api.ocr.space/parse/image"
+    
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        tmp.write(pdf_content)
+        tmp_path = tmp.name
+    
+    try:
+        with open(tmp_path, "rb") as f:
+            response = requests.post(
+                url,
+                files={"file": f},
+                data={
+                    "apikey": OCR_API_KEY,
+                    "language": "eng",
+                    "isOverlayRequired": False,
+                    "filetype": "PDF"
+                },
+                timeout=60
+            )
+        
+        result = response.json()
+        
+        if result.get("IsErroredOnProcessing"):
+            raise Exception(result.get("ErrorMessage", "OCR processing failed"))
+        
+        return "\n".join(
+            r["ParsedText"] for r in result.get("ParsedResults", [])
+        )
+    finally:
+        os.unlink(tmp_path)
+
 def extract_text_from_pdf(pdf_file: UploadFile) -> str:
-    """Extract text from PDF file with OCR fallback for images"""
+    """Extract text from PDF file with OCR.space fallback"""
     try:
         pdf_file.file.seek(0)
         pdf_content = pdf_file.file.read()
@@ -619,33 +652,20 @@ def extract_text_from_pdf(pdf_file: UploadFile) -> str:
         except Exception as e:
             print(f"Regular PDF text extraction failed: {e}")
         
-        # If regular extraction failed or returned minimal text, try OCR
-        print("Attempting OCR extraction...")
+        # If regular extraction failed, try OCR.space
+        print("Attempting OCR.space extraction...")
         try:
-            # Set tesseract path explicitly for Render
-            pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
-            
-            # Convert PDF to images
-            images = convert_from_bytes(pdf_content, dpi=200)
-            ocr_text = ""
-            
-            for i, image in enumerate(images):
-                # Use Tesseract OCR
-                page_text = pytesseract.image_to_string(image, lang='eng')
-                if page_text.strip():
-                    ocr_text += f"Page {i+1}:\n{page_text}\n\n"
-            
+            ocr_text = ocr_space_pdf(pdf_content)
             if ocr_text.strip():
                 return ocr_text.strip()
             else:
-                raise HTTPException(status_code=400, detail="Could not extract any text from this PDF. The document may be empty or contain unsupported content.")
-                
+                raise HTTPException(status_code=400, detail="Could not extract any text from this PDF.")
         except Exception as ocr_error:
-            print(f"OCR extraction failed: {ocr_error}")
+            print(f"OCR.space extraction failed: {ocr_error}")
             # Fallback: return whatever text we got from regular extraction
             if text.strip():
                 return text.strip()
-            raise HTTPException(status_code=400, detail=f"OCR extraction failed: {str(ocr_error)}. Please ensure tesseract and poppler are installed. Run './install_ocr.sh' to install dependencies.")
+            raise HTTPException(status_code=400, detail=f"OCR extraction failed: {str(ocr_error)}")
         
     except PyPDF2.errors.PdfReadError:
         raise HTTPException(status_code=400, detail="Invalid or corrupted PDF file")
