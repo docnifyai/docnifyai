@@ -1,22 +1,24 @@
 #!/bin/bash
+set -e
 
-# Render build script for Tesseract OCR
-echo "Installing Tesseract OCR dependencies..."
+# Make script executable
+chmod +x render-build.sh
 
-# Update package list and install dependencies
+# Install system dependencies
 apt-get update
 apt-get install -y tesseract-ocr tesseract-ocr-eng poppler-utils
-
-# Create startup script to set PATH
-cat > start.sh << 'EOF'
-#!/bin/bash
-export PATH="/usr/bin:/usr/local/bin:$PATH"
-exec python main.py
-EOF
-
-chmod +x start.sh
 
 # Install Python dependencies
 pip install -r requirements.txt
 
-echo "✅ Build complete with Tesseract OCR support"
+# Create start script with proper PATH
+cat > start.sh << 'EOF'
+#!/bin/bash
+export PATH="/usr/bin:/bin:/usr/local/bin:$PATH"
+export TESSDATA_PREFIX="/usr/share/tesseract-ocr/5/tessdata/"
+python main.py
+EOF
+
+chmod +x start.sh
+
+echo "Build complete - tesseract installed"
