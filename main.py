@@ -27,6 +27,7 @@ from reportlab.lib.units import inch
 
 import requests
 import tempfile
+from PyPDF2 import PdfWriter, PdfReader
 
 load_dotenv()
 
@@ -594,6 +595,25 @@ def upload_pdf_to_drive(user_id: str, pdf_content: bytes, filename: str) -> str:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Google Drive upload failed: {str(e)}")
 
+def compress_pdf(pdf_content: bytes) -> bytes:
+    """Compress PDF to reduce file size"""
+    try:
+        reader = PdfReader(io.BytesIO(pdf_content))
+        writer = PdfWriter()
+        
+        for page in reader.pages:
+            page.compress_content_streams()
+            writer.add_page(page)
+        
+        output = io.BytesIO()
+        writer.write(output)
+        compressed_content = output.getvalue()
+        output.close()
+        
+        return compressed_content
+    except:
+        return pdf_content
+
 def ocr_space_pdf(pdf_content: bytes) -> str:
     """Extract text from PDF using OCR.space API"""
     OCR_API_KEY = os.getenv("OCR_SPACE_API_KEY", "helloworld")
@@ -655,13 +675,20 @@ def extract_text_from_pdf(pdf_file: UploadFile) -> str:
         # If regular extraction failed, try OCR.space
         print("Attempting OCR.space extraction...")
         try:
-            ocr_text = ocr_space_pdf(pdf_content)
+            # Compress PDF before OCR to reduce size
+            compressed_content = compress_pdf(pdf_content)
+            ocr_text = ocr_space_pdf(compressed_content)
             if ocr_text.strip():
                 return ocr_text.strip()
             else:
                 raise HTTPException(status_code=400, detail="Could not extract any text from this PDF.")
         except Exception as ocr_error:
             print(f"OCR.space extraction failed: {ocr_error}")
+            error_msg = str(ocr_error)
+            if "File size exceeds" in error_msg:
+                raise HTTPException(status_code=400, detail="PDF file is too large for OCR processing. Please use a smaller file (under 1MB) or a text-based PDF.")
+            elif "maximum page limit" in error_msg:
+                raise HTTPException(status_code=400, detail="PDF has too many pages for OCR processing. Only first 3 pages were processed. Please use a shorter document or text-based PDF.")
             # Fallback: return whatever text we got from regular extraction
             if text.strip():
                 return text.strip()
