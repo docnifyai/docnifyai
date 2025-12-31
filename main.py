@@ -219,6 +219,7 @@ class DocumentExplanation(BaseModel):
     document_id: Optional[str] = None
     requires_auth: bool = False
     requires_verification: bool = False
+    page_limit_note: Optional[str] = None
 
 class QuestionRequest(BaseModel):
     document_id: str
@@ -595,20 +596,61 @@ def upload_pdf_to_drive(user_id: str, pdf_content: bytes, filename: str) -> str:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Google Drive upload failed: {str(e)}")
 
+def limit_pdf_pages(pdf_content: bytes, max_pages: int = 3) -> tuple[bytes, bool]:
+    """Limit PDF to first N pages and return if truncated"""
+    try:
+        reader = PdfReader(io.BytesIO(pdf_content))
+        total_pages = len(reader.pages)
+        
+        if total_pages <= max_pages:
+            return pdf_content, False
+        
+        writer = PdfWriter()
+        for i in range(max_pages):
+            writer.add_page(reader.pages[i])
+        
+        output = io.BytesIO()
+        writer.write(output)
+        limited_content = output.getvalue()
+        output.close()
+        
+        return limited_content, True
+    except:
+        return pdf_content, False
+
 def compress_pdf(pdf_content: bytes) -> bytes:
-    """Compress PDF to reduce file size"""
+    """Aggressively compress PDF to reduce file size"""
     try:
         reader = PdfReader(io.BytesIO(pdf_content))
         writer = PdfWriter()
         
         for page in reader.pages:
+            # Compress content streams
             page.compress_content_streams()
+            # Scale down if needed
+            page.scale_by(0.8)  # Reduce by 20%
             writer.add_page(page)
+        
+        # Add compression
+        writer.compress_identical_objects()
         
         output = io.BytesIO()
         writer.write(output)
         compressed_content = output.getvalue()
         output.close()
+        
+        # If still too large, try more aggressive compression
+        if len(compressed_content) > 800 * 1024:  # 800KB threshold
+            writer = PdfWriter()
+            for page in reader.pages:
+                page.compress_content_streams()
+                page.scale_by(0.6)  # More aggressive scaling
+                writer.add_page(page)
+            
+            output = io.BytesIO()
+            writer.write(output)
+            compressed_content = output.getvalue()
+            output.close()
         
         return compressed_content
     except:
@@ -675,11 +717,21 @@ def extract_text_from_pdf(pdf_file: UploadFile) -> str:
         # If regular extraction failed, try OCR.space
         print("Attempting OCR.space extraction...")
         try:
-            # Compress PDF before OCR to reduce size
-            compressed_content = compress_pdf(pdf_content)
+            # Limit to first 3 pages and compress PDF before OCR
+            limited_content, was_truncated = limit_pdf_pages(pdf_content, 3)
+            compressed_content = compress_pdf(limited_content)
+            
+            # Check final size
+            size_mb = len(compressed_content) / (1024 * 1024)
+            print(f"Compressed PDF size: {size_mb:.2f}MB")
+            
             ocr_text = ocr_space_pdf(compressed_content)
+            
             if ocr_text.strip():
-                return ocr_text.strip()
+                result_text = ocr_text.strip()
+                if was_truncated:
+                    result_text += "\n\n[Note: This document had more than 3 pages. Only the first 3 pages were processed.]"
+                return result_text
             else:
                 raise HTTPException(status_code=400, detail="Could not extract any text from this PDF.")
         except Exception as ocr_error:
