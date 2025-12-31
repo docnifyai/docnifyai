@@ -619,19 +619,17 @@ def limit_pdf_pages(pdf_content: bytes, max_pages: int = 3) -> tuple[bytes, bool
         return pdf_content, False
 
 def compress_pdf(pdf_content: bytes) -> bytes:
-    """Aggressively compress PDF to reduce file size"""
+    """Aggressively compress PDF to reduce file size for OCR"""
     try:
         reader = PdfReader(io.BytesIO(pdf_content))
         writer = PdfWriter()
         
+        # Start with very aggressive compression
         for page in reader.pages:
-            # Compress content streams
             page.compress_content_streams()
-            # Scale down if needed
-            page.scale_by(0.8)  # Reduce by 20%
+            page.scale_by(0.5)  # Reduce by 50%
             writer.add_page(page)
         
-        # Add compression
         writer.compress_identical_objects()
         
         output = io.BytesIO()
@@ -639,14 +637,15 @@ def compress_pdf(pdf_content: bytes) -> bytes:
         compressed_content = output.getvalue()
         output.close()
         
-        # If still too large, try more aggressive compression
-        if len(compressed_content) > 800 * 1024:  # 800KB threshold
+        # If still over 900KB, try even more aggressive compression
+        if len(compressed_content) > 900 * 1024:
             writer = PdfWriter()
             for page in reader.pages:
                 page.compress_content_streams()
-                page.scale_by(0.6)  # More aggressive scaling
+                page.scale_by(0.3)  # Very aggressive scaling
                 writer.add_page(page)
             
+            writer.compress_identical_objects()
             output = io.BytesIO()
             writer.write(output)
             compressed_content = output.getvalue()
@@ -905,9 +904,9 @@ async def explain_document(file: UploadFile = File(...), mode: str = Form("simpl
             # Check if user needs email verification
             if not email_verified:
                 requires_verification = True
-            # Check document limit for signed-in users (2 documents)
-            elif doc_count >= 2:
-                raise HTTPException(status_code=429, detail="Document limit reached. Signed-in users can process 2 documents. Please verify your email to continue.")
+                # Check document limit for unverified users (2 documents)
+                if doc_count >= 2:
+                    raise HTTPException(status_code=429, detail="Document limit reached. Signed-in users can process 2 documents. Please verify your email to continue.")
         else:
             # New user, create document
             db.collection('users').document(user["user_id"]).set({
