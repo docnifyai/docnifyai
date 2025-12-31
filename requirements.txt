@@ -11,5 +11,4 @@ python-dotenv
 pydantic
 reportlab==4.0.7
 Pillow
-pdf2image
-pytesseract
+requests
