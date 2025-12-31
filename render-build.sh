@@ -7,6 +7,13 @@ echo "Installing Tesseract OCR dependencies..."
 apt-get update
 apt-get install -y tesseract-ocr tesseract-ocr-eng poppler-utils
 
+# Add tesseract to PATH
+export PATH="/usr/bin:$PATH"
+
+# Verify installation
+echo "Tesseract location: $(which tesseract)"
+echo "Tesseract version: $(tesseract --version)"
+
 # Install Python dependencies
 pip install -r requirements.txt
 
