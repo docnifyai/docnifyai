@@ -1,24 +1,13 @@
 #!/bin/bash
-set -e
 
-# Make script executable
-chmod +x render-build.sh
-
-# Install system dependencies
-apt-get update
-apt-get install -y tesseract-ocr tesseract-ocr-eng poppler-utils
-
-# Install Python dependencies
+# Install system dependencies and Python packages
+sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-eng poppler-utils
 pip install -r requirements.txt
 
-# Create start script with proper PATH
+# Create start script
 cat > start.sh << 'EOF'
 #!/bin/bash
-export PATH="/usr/bin:/bin:/usr/local/bin:$PATH"
-export TESSDATA_PREFIX="/usr/share/tesseract-ocr/5/tessdata/"
+export PATH="/usr/bin:$PATH"
 python main.py
 EOF
-
 chmod +x start.sh
-
-echo "Build complete - tesseract installed"
