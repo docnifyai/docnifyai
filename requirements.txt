@@ -12,3 +12,4 @@ pydantic
 reportlab==4.0.7
 Pillow
 requests
+PyPDF4
