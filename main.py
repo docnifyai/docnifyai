@@ -62,7 +62,7 @@ app = FastAPI(title="Docnify API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "https://docnifyai6.web.app", "https://docnifyai.onrender.com"],
+    allow_origins=["http://localhost:5173", "https://docnifyai6.web.app", "https://docnifyai.onrender.com", "https://senschatsocial.web.app", "https://senschatsocial.firebaseapp.com"],
     allow_credentials=True,
     allow_methods=["POST", "GET", "DELETE"],
     allow_headers=["*"],
