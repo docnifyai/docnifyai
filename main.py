@@ -720,10 +720,6 @@ def extract_text_from_pdf(pdf_file: UploadFile) -> str:
             limited_content, was_truncated = limit_pdf_pages(pdf_content, 3)
             compressed_content = compress_pdf(limited_content)
             
-            # Check final size
-            size_mb = len(compressed_content) / (1024 * 1024)
-            print(f"Compressed PDF size: {size_mb:.2f}MB")
-            
             ocr_text = ocr_space_pdf(compressed_content)
             
             if ocr_text.strip():
@@ -735,11 +731,6 @@ def extract_text_from_pdf(pdf_file: UploadFile) -> str:
                 raise HTTPException(status_code=400, detail="Could not extract any text from this PDF.")
         except Exception as ocr_error:
             print(f"OCR.space extraction failed: {ocr_error}")
-            error_msg = str(ocr_error)
-            if "File size exceeds" in error_msg:
-                raise HTTPException(status_code=400, detail="PDF file is too large for OCR processing. Please use a smaller file (under 1MB) or a text-based PDF.")
-            elif "maximum page limit" in error_msg:
-                raise HTTPException(status_code=400, detail="PDF has too many pages for OCR processing. Only first 3 pages were processed. Please use a shorter document or text-based PDF.")
             # Fallback: return whatever text we got from regular extraction
             if text.strip():
                 return text.strip()
