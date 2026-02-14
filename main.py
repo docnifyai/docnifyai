@@ -624,28 +624,32 @@ def compress_pdf(pdf_content: bytes) -> bytes:
         reader = PdfReader(io.BytesIO(pdf_content))
         writer = PdfWriter()
         
-        # Start with very aggressive compression
+        # Very aggressive compression - scale to 30%
         for page in reader.pages:
             page.compress_content_streams()
-            page.scale_by(0.5)  # Reduce by 50%
+            page.scale_by(0.3)
             writer.add_page(page)
         
         writer.compress_identical_objects()
+        writer.remove_links()
         
         output = io.BytesIO()
         writer.write(output)
         compressed_content = output.getvalue()
         output.close()
         
-        # If still over 900KB, try even more aggressive compression
+        # If still over 900KB, reduce to first 2 pages only
         if len(compressed_content) > 900 * 1024:
             writer = PdfWriter()
-            for page in reader.pages:
+            for i, page in enumerate(reader.pages):
+                if i >= 2:
+                    break
                 page.compress_content_streams()
-                page.scale_by(0.3)  # Very aggressive scaling
+                page.scale_by(0.25)
                 writer.add_page(page)
             
             writer.compress_identical_objects()
+            writer.remove_links()
             output = io.BytesIO()
             writer.write(output)
             compressed_content = output.getvalue()
