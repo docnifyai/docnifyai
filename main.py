@@ -28,6 +28,8 @@ from reportlab.lib.units import inch
 import requests
 import tempfile
 from PyPDF2 import PdfWriter, PdfReader
+from pdf2image import convert_from_bytes
+from PIL import Image
 
 load_dotenv()
 
@@ -619,43 +621,44 @@ def limit_pdf_pages(pdf_content: bytes, max_pages: int = 3) -> tuple[bytes, bool
         return pdf_content, False
 
 def compress_pdf(pdf_content: bytes) -> bytes:
-    """Aggressively compress PDF to reduce file size for OCR"""
+    """Aggressively compress PDF by converting to low-quality images"""
     try:
-        reader = PdfReader(io.BytesIO(pdf_content))
-        writer = PdfWriter()
+        # Convert first 2 pages to images at low DPI
+        images = convert_from_bytes(pdf_content, dpi=100, first_page=1, last_page=2)
         
-        # Very aggressive compression - scale to 30%
-        for page in reader.pages:
-            page.compress_content_streams()
-            page.scale_by(0.3)
-            writer.add_page(page)
+        # Compress images heavily
+        compressed_images = []
+        for img in images:
+            # Resize to max width 800px
+            if img.width > 800:
+                ratio = 800 / img.width
+                new_size = (800, int(img.height * ratio))
+                img = img.resize(new_size, Image.LANCZOS)
+            
+            # Convert to RGB and compress
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            
+            img_buffer = io.BytesIO()
+            img.save(img_buffer, format='JPEG', quality=40, optimize=True)
+            compressed_images.append(img_buffer.getvalue())
         
-        writer.compress_identical_objects()
-        writer.remove_links()
+        # Create new PDF from compressed images
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.utils import ImageReader
         
         output = io.BytesIO()
-        writer.write(output)
-        compressed_content = output.getvalue()
-        output.close()
+        c = canvas.Canvas(output)
         
-        # If still over 900KB, reduce to first 2 pages only
-        if len(compressed_content) > 900 * 1024:
-            writer = PdfWriter()
-            for i, page in enumerate(reader.pages):
-                if i >= 2:
-                    break
-                page.compress_content_streams()
-                page.scale_by(0.25)
-                writer.add_page(page)
-            
-            writer.compress_identical_objects()
-            writer.remove_links()
-            output = io.BytesIO()
-            writer.write(output)
-            compressed_content = output.getvalue()
-            output.close()
+        for img_bytes in compressed_images:
+            img = Image.open(io.BytesIO(img_bytes))
+            width, height = img.size
+            c.setPageSize((width, height))
+            c.drawImage(ImageReader(io.BytesIO(img_bytes)), 0, 0, width, height)
+            c.showPage()
         
-        return compressed_content
+        c.save()
+        return output.getvalue()
     except:
         return pdf_content
 
