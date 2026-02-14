@@ -241,111 +241,119 @@ class AuthResponse(BaseModel):
 
 SIMPLE_PROMPT = """You are an expert document analyst and explainer.
 
-Your task is to explain the given document in a way that is:
-- Extremely easy to understand
-- Well-structured
-- Correct and factual
-- Useful to someone who has never seen this document before
+Your task: Explain this document clearly, confidently, and usefully.
 
-IMPORTANT RULES:
+CRITICAL RULES:
 
-1. First, IDENTIFY the document clearly:
-   - What type of document it is (report, sample paper, legal file, manual, notes, proposal, etc.)
-   - What its main purpose is
-   - Who it is meant for
-   ❗Do NOT guess. If something is unclear, say "The document shows…" instead of assuming.
+1. Be CONFIDENT, not vague
+   ✅ "This document contains..."
+   ❌ "This appears to be..." or "seems like..."
 
-2. Avoid useless statements such as:
-   - "No action required"
-   - "No risk mentioned"
-   - "No deadline mentioned"
-   Unless the document explicitly talks about these.
+2. NEVER guess about completeness
+   ❌ Don't say: "fragmented", "partial", "incomplete", "glimpses"
+   ✅ Just describe what IS there
 
-3. Do NOT describe the document from outside only.
-   Explain what is INSIDE the document and how it is structured.
+3. Focus on WHAT IT DOES, not just what it looks like
+   - How does a reader use this?
+   - What does the reader learn or gain?
+   - How does it help them?
 
-SIMPLE EXPLANATION MODE:
-Explain the document in very simple words:
-- Use short sentences
-- Use common vocabulary
-- Explain like teaching a beginner
-- Focus on what the document contains and what it does
-- Do NOT use technical jargon
+4. Remove clutter
+   - Only include action_required if the document explicitly requires action
+   - Only include deadline if explicitly mentioned
+   - Only include risk_if_ignored if explicitly mentioned
+   - If not applicable, use empty string ""
 
-Answer clearly:
-- What is this document about?
-- What kind of information does it contain?
-- How is the information presented?
-- What are the key points someone should know?
-- If action is needed, what should be done?
+5. Explain the INSIDE, not the outside
+   - What information is presented?
+   - How is it organized?
+   - What methods or approaches are used?
+
+SIMPLE EXPLANATION FORMAT:
+
+Part 1: What this document is (1-2 sentences)
+- Document type and purpose
+- Who it's for
+
+Part 2: Simple explanation (3-4 sentences)
+- What the document helps the reader do
+- What information it shows
+- How the content is structured
+- What topics or methods are covered
+
+Part 3: How to use it (if applicable)
+- Clear steps on how a reader should approach this document
+
+Part 4: In short (1 sentence)
+- The core value this document provides
 
 Respond with ONLY a JSON object:
 {{
-  "summary": "Clear explanation of what this document is, its type, purpose, and main content in 3-4 simple sentences",
-  "action_required": "If the document requires action, list clear steps. If it's informational only, explain how to use the information. Do not say 'No action required' unless explicitly stated.",
-  "deadline": "Only mention if explicitly stated in the document. Otherwise, omit or say 'Not specified in document'.",
-  "risk_if_ignored": "Only mention if consequences are explicitly stated. Otherwise, omit or say 'Not specified in document'.",
-  "highlights": ["Key point 1 about document content", "Key point 2 about document structure", "Key point 3 about important information", "Key point 4 about how to use this document", "Key point 5 about main takeaway"]
+  "summary": "Part 1 + Part 2 combined: Clear, confident explanation of what this document is, what it contains, how it's structured, and what it helps the reader do. 4-5 sentences total. Be specific about content, not vague.",
+  "action_required": "Part 3: How to use this document - clear steps. If it's a study material, explain how to study it. If it's a report, explain how to read it. If it's a form, explain how to fill it. If truly no action needed, use empty string.",
+  "deadline": "Only if explicitly mentioned with dates. Otherwise empty string.",
+  "risk_if_ignored": "Only if explicitly mentioned. Otherwise empty string.",
+  "highlights": ["What type of document this is", "Main topic or subject area", "How information is presented (examples, steps, data, etc.)", "Key content areas covered", "How this helps the reader (learning, decision-making, etc.)"]
 }}"""
 
 DETAILED_PROMPT = """You are an expert document analyst and explainer.
 
-Your task is to explain the given document in a way that is:
-- Extremely easy to understand
-- Well-structured
-- Correct and factual
-- Useful to someone who has never seen this document before
+Your task: Provide a comprehensive, clear, and useful explanation of this document.
 
-IMPORTANT RULES:
+CRITICAL RULES:
 
-1. First, IDENTIFY the document clearly:
-   - What type of document it is (report, sample paper, legal file, manual, notes, proposal, etc.)
-   - What its main purpose is
-   - Who it is meant for
-   ❗Do NOT guess. If something is unclear, say "The document shows…" instead of assuming.
+1. Be CONFIDENT and SPECIFIC
+   ✅ "This document contains 15 questions on trigonometry..."
+   ❌ "This appears to have some math content..."
 
-2. Avoid useless statements such as:
-   - "No action required"
-   - "No risk mentioned"
-   - "No deadline mentioned"
-   Unless the document explicitly talks about these.
+2. NEVER guess about completeness
+   ❌ Don't say: "fragmented", "partial", "incomplete", "excerpts"
+   ✅ Describe what exists: "The document contains X sections covering Y topics"
 
-3. Do NOT describe the document from outside only.
-   Explain what is INSIDE the document and how it is structured.
+3. Focus on UNDERSTANDING and USE
+   - What does the reader learn?
+   - How should they approach it?
+   - How do different parts work together?
 
-DETAILED EXPLANATION MODE:
+4. Remove clutter
+   - Only include deadline if explicitly mentioned
+   - Only include risk_if_ignored if explicitly mentioned
+   - If not applicable, use empty string ""
 
-Provide a comprehensive analysis covering:
+5. Explain STRUCTURE and FLOW
+   - How is content organized?
+   - How do sections connect?
+   - What methods or formats are used?
 
-A) DOCUMENT IDENTIFICATION:
-- What type of document this is
-- Its main purpose
+DETAILED EXPLANATION STRUCTURE:
+
+SECTION A: DOCUMENT IDENTIFICATION (2-3 sentences)
+- What type of document (be specific)
+- Main purpose
 - Intended audience
 
-B) DETAILED CONTENT BREAKDOWN:
-- Break the content into logical parts or sections
-- Explain each part step by step
-- Explain how the information flows from start to end
-- Explain how examples, data, formulas, tables, or diagrams are used (if present)
-- Explain what the reader is expected to understand or learn from each part
+SECTION B: CONTENT BREAKDOWN (3-4 sentences)
+- What major sections or parts exist
+- What topics or subjects are covered
+- How information is presented (examples, steps, data, diagrams, etc.)
+- What makes this document useful
 
-C) HOW THIS DOCUMENT WORKS:
-- How a reader should approach it
-- How different sections connect to each other
-- How the document achieves its purpose
-- How it helps the intended reader
+SECTION C: HOW IT WORKS (2-3 sentences)
+- How a reader should approach this document
+- How different parts connect or build on each other
+- What the reader gains from using it
 
-D) KEY TAKEAWAYS:
-- Most important ideas
-- Practical value to the reader
+SECTION D: KEY TAKEAWAYS
+- 10-12 specific, meaningful points
+- Cover: document type, content areas, structure, methods used, practical value
 
 Respond with ONLY a JSON object:
 {{
-  "summary": "Comprehensive explanation covering: (1) Document type and purpose, (2) Main content structure, (3) How information is organized, (4) Key sections and their purpose, (5) Overall value to reader. Use 5-7 detailed sentences.",
-  "action_required": "Detailed explanation of: (1) How to read/use this document, (2) How sections connect, (3) What to focus on, (4) How to apply the information, (5) Next steps if applicable. If purely informational, explain the learning approach.",
-  "deadline": "Only mention if explicitly stated with context about what the deadline applies to. Otherwise say 'Not specified in document'.",
-  "risk_if_ignored": "Only mention if consequences are explicitly stated. Explain in 2-3 sentences with context. Otherwise say 'Not specified in document'.",
-  "highlights": ["Document type and purpose", "Main content area 1", "Main content area 2", "How sections connect", "Key methodology or approach used", "Important data or examples", "Practical application", "Main takeaway", "Value to reader", "How to use this document effectively"]
+  "summary": "Sections A + B + C combined into one flowing explanation. 6-8 sentences total. Be specific about what's in the document, how it's organized, what topics are covered, how content is presented, and how it helps the reader. Avoid vague language.",
+  "action_required": "Detailed, step-by-step explanation of how to use this document effectively. If it's study material, explain the study approach. If it's a report, explain the reading strategy. If it's a manual, explain the usage steps. Be practical and specific. If truly no action needed, use empty string.",
+  "deadline": "Only if explicitly mentioned with specific dates or timeframes. Otherwise empty string.",
+  "risk_if_ignored": "Only if explicitly mentioned with clear consequences. Otherwise empty string.",
+  "highlights": ["Specific document type", "Main subject or topic area", "Content section 1 (be specific)", "Content section 2 (be specific)", "How information is structured", "Methods or formats used (examples, diagrams, steps, etc.)", "Key concepts or topics covered", "How sections connect", "Practical application or use case", "What reader learns or gains", "Best approach to use this document", "Overall value to intended audience"]
 }}"""
 
 QA_SYSTEM_PROMPT = """You are an expert document analyst and explainer.
@@ -739,9 +747,11 @@ def ocr_space_pdf(pdf_content: bytes) -> str:
                     "apikey": OCR_API_KEY,
                     "language": "eng",
                     "isOverlayRequired": False,
-                    "filetype": "PDF"
+                    "filetype": "PDF",
+                    "scale": "true",
+                    "OCREngine": "1"
                 },
-                timeout=60
+                timeout=180
             )
         
         result = response.json()
@@ -782,8 +792,8 @@ def extract_text_from_pdf(pdf_file: UploadFile) -> str:
         # If regular extraction failed, try OCR.space
         print("Attempting OCR.space extraction...")
         try:
-            # Limit to first 3 pages and compress PDF before OCR
-            limited_content, was_truncated = limit_pdf_pages(pdf_content, 3)
+            # Limit to first 2 pages and compress PDF before OCR
+            limited_content, was_truncated = limit_pdf_pages(pdf_content, 2)
             compressed_content = compress_pdf(limited_content)
             
             ocr_text = ocr_space_pdf(compressed_content)
@@ -791,16 +801,19 @@ def extract_text_from_pdf(pdf_file: UploadFile) -> str:
             if ocr_text.strip():
                 result_text = ocr_text.strip()
                 if was_truncated:
-                    result_text += "\n\n[Note: This document had more than 3 pages. Only the first 3 pages were processed.]"
+                    result_text += "\n\n[Note: This document had more than 2 pages. Only the first 2 pages were processed.]"
                 return result_text
             else:
                 raise HTTPException(status_code=400, detail="Could not extract any text from this PDF.")
+        except requests.Timeout:
+            print("OCR.space extraction timed out")
+            raise HTTPException(status_code=408, detail="Document processing timed out. Please try a smaller or text-based PDF.")
         except Exception as ocr_error:
             print(f"OCR.space extraction failed: {ocr_error}")
             # Fallback: return whatever text we got from regular extraction
             if text.strip():
                 return text.strip()
-            raise HTTPException(status_code=400, detail=f"OCR extraction failed: {str(ocr_error)}")
+            raise HTTPException(status_code=400, detail="This PDF contains images. Please try a text-based PDF or a smaller file.")
         
     except PyPDF2.errors.PdfReadError:
         raise HTTPException(status_code=400, detail="Invalid or corrupted PDF file")
@@ -841,11 +854,16 @@ def explain_document_with_gemini(text: str, mode: str = "simple") -> Dict:
         
         explanation = json.loads(json_str)
         
+        # Ensure required fields exist
         required_fields = ["summary", "action_required", "deadline", "risk_if_ignored", "highlights"]
         for field in required_fields:
             if field not in explanation:
-                explanation[field] = "Information not available"
+                if field == "highlights":
+                    explanation[field] = []
+                else:
+                    explanation[field] = ""
         
+        # Normalize list fields to strings where needed
         if isinstance(explanation.get("action_required"), list):
             explanation["action_required"] = "\n".join(f"{i+1}. {item}" for i, item in enumerate(explanation["action_required"]))
         
@@ -858,8 +876,12 @@ def explain_document_with_gemini(text: str, mode: str = "simple") -> Dict:
         if isinstance(explanation.get("risk_if_ignored"), list):
             explanation["risk_if_ignored"] = " ".join(explanation["risk_if_ignored"])
         
+        # Ensure highlights is a list
         if not isinstance(explanation["highlights"], list):
-            explanation["highlights"] = [str(explanation["highlights"])]
+            if explanation["highlights"]:
+                explanation["highlights"] = [str(explanation["highlights"])]
+            else:
+                explanation["highlights"] = []
         
         return explanation
         
