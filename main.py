@@ -24,8 +24,6 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.units import inch
-from pdf2image import convert_from_bytes
-import pytesseract
 
 import requests
 import tempfile
@@ -598,10 +596,101 @@ def upload_pdf_to_drive(user_id: str, pdf_content: bytes, filename: str) -> str:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Google Drive upload failed: {str(e)}")
 
+def limit_pdf_pages(pdf_content: bytes, max_pages: int = 3) -> tuple[bytes, bool]:
+    """Limit PDF to first N pages and return if truncated"""
+    try:
+        reader = PdfReader(io.BytesIO(pdf_content))
+        total_pages = len(reader.pages)
+        
+        if total_pages <= max_pages:
+            return pdf_content, False
+        
+        writer = PdfWriter()
+        for i in range(max_pages):
+            writer.add_page(reader.pages[i])
+        
+        output = io.BytesIO()
+        writer.write(output)
+        limited_content = output.getvalue()
+        output.close()
+        
+        return limited_content, True
+    except:
+        return pdf_content, False
 
+def compress_pdf(pdf_content: bytes) -> bytes:
+    """Aggressively compress PDF to reduce file size for OCR"""
+    try:
+        reader = PdfReader(io.BytesIO(pdf_content))
+        writer = PdfWriter()
+        
+        # Start with very aggressive compression
+        for page in reader.pages:
+            page.compress_content_streams()
+            page.scale_by(0.5)  # Reduce by 50%
+            writer.add_page(page)
+        
+        writer.compress_identical_objects()
+        
+        output = io.BytesIO()
+        writer.write(output)
+        compressed_content = output.getvalue()
+        output.close()
+        
+        # If still over 900KB, try even more aggressive compression
+        if len(compressed_content) > 900 * 1024:
+            writer = PdfWriter()
+            for page in reader.pages:
+                page.compress_content_streams()
+                page.scale_by(0.3)  # Very aggressive scaling
+                writer.add_page(page)
+            
+            writer.compress_identical_objects()
+            output = io.BytesIO()
+            writer.write(output)
+            compressed_content = output.getvalue()
+            output.close()
+        
+        return compressed_content
+    except:
+        return pdf_content
+
+def ocr_space_pdf(pdf_content: bytes) -> str:
+    """Extract text from PDF using OCR.space API"""
+    OCR_API_KEY = os.getenv("OCR_SPACE_API_KEY", "helloworld")
+    url = "https://api.ocr.space/parse/image"
+    
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        tmp.write(pdf_content)
+        tmp_path = tmp.name
+    
+    try:
+        with open(tmp_path, "rb") as f:
+            response = requests.post(
+                url,
+                files={"file": f},
+                data={
+                    "apikey": OCR_API_KEY,
+                    "language": "eng",
+                    "isOverlayRequired": False,
+                    "filetype": "PDF"
+                },
+                timeout=60
+            )
+        
+        result = response.json()
+        
+        if result.get("IsErroredOnProcessing"):
+            raise Exception(result.get("ErrorMessage", "OCR processing failed"))
+        
+        return "\n".join(
+            r["ParsedText"] for r in result.get("ParsedResults", [])
+        )
+    finally:
+        os.unlink(tmp_path)
 
 def extract_text_from_pdf(pdf_file: UploadFile) -> str:
-    """Extract text from PDF file with OCR fallback"""
+    """Extract text from PDF file with OCR.space fallback"""
     try:
         pdf_file.file.seek(0)
         pdf_content = pdf_file.file.read()
@@ -609,31 +698,43 @@ def extract_text_from_pdf(pdf_file: UploadFile) -> str:
         if not pdf_content:
             raise HTTPException(status_code=400, detail="Empty PDF file")
         
-        pdf_reader = PyPDF2.PdfReader(io.BytesIO(pdf_content))
-        text = ""
-        for page in pdf_reader.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text + "\n"
-        
-        if text.strip() and len(text.strip()) > 50:
-            return text.strip()
-        
-        # Try OCR if no text extracted
-        print("No text found, attempting OCR...")
+        # First try regular text extraction
         try:
-            images = convert_from_bytes(pdf_content)
-            ocr_text = ""
-            for img in images:
-                ocr_text += pytesseract.image_to_string(img) + "\n"
+            pdf_reader = PyPDF2.PdfReader(io.BytesIO(pdf_content))
+            text = ""
+            for page in pdf_reader.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n"
+            
+            # If we got meaningful text, return it
+            if text.strip() and len(text.strip()) > 50:
+                return text.strip()
+        except Exception as e:
+            print(f"Regular PDF text extraction failed: {e}")
+        
+        # If regular extraction failed, try OCR.space
+        print("Attempting OCR.space extraction...")
+        try:
+            # Limit to first 3 pages and compress PDF before OCR
+            limited_content, was_truncated = limit_pdf_pages(pdf_content, 3)
+            compressed_content = compress_pdf(limited_content)
+            
+            ocr_text = ocr_space_pdf(compressed_content)
             
             if ocr_text.strip():
-                return ocr_text.strip()
+                result_text = ocr_text.strip()
+                if was_truncated:
+                    result_text += "\n\n[Note: This document had more than 3 pages. Only the first 3 pages were processed.]"
+                return result_text
             else:
-                raise HTTPException(status_code=400, detail="Could not extract text from PDF")
+                raise HTTPException(status_code=400, detail="Could not extract any text from this PDF.")
         except Exception as ocr_error:
-            print(f"OCR failed: {ocr_error}")
-            raise HTTPException(status_code=400, detail="Could not extract text from PDF")
+            print(f"OCR.space extraction failed: {ocr_error}")
+            # Fallback: return whatever text we got from regular extraction
+            if text.strip():
+                return text.strip()
+            raise HTTPException(status_code=400, detail=f"OCR extraction failed: {str(ocr_error)}")
         
     except PyPDF2.errors.PdfReadError:
         raise HTTPException(status_code=400, detail="Invalid or corrupted PDF file")
